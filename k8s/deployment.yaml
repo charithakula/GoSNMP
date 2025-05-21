@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: snmp-trap-sender
+  namespace: snmp-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: snmp-trap-sender
+  template:
+    metadata:
+      labels:
+        app: snmp-trap-sender
+    spec:
+      containers:
+      - name: snmp-trap-sender
+        image: your-dockerhub-username/snmp-trap-sender:latest
+        imagePullPolicy: Always
+        envFrom:
+        - configMapRef:
+            name: snmp-config
+        volumeMounts:
+        - name: credentials-volume
+          mountPath: /app/credentials.json
+          subPath: credentials.json
+      volumes:
+      - name: credentials-volume
+        secret:
+          secretName: snmp-credentials

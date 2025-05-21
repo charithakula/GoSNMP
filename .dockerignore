@@ -1,0 +1,11 @@
+# Binaries
+snmp-trap-sender
+
+# Git files
+.git
+.gitignore
+
+# OS or IDE files
+*.swp
+*.DS_Store
+*.vscode
