@@ -1,34 +1,30 @@
-# Use the official Golang image to build the app
-FROM golang:1.20 AS builder
+# Stage 1: Build static Go binary
+FROM golang:1.24.3 AS builder
 
-# Set the working directory inside the container
 WORKDIR /app
 
-# Copy go.mod and go.sum to download dependencies
+# Copy go.mod and go.sum first for caching
 COPY go.mod go.sum ./
 RUN go mod download
 
-# Copy the entire source code
+# Copy the application code
 COPY . .
 
-# Build the Go app
-RUN go build -o snmp-trap-sender
+# Build a static binary (CGO disabled)
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -o snmp-trap-sender .
 
-# Use a smaller base image to run the app
-FROM debian:bullseye-slim
+# Stage 2: Create minimal image using scratch
+FROM scratch
 
-# Install SNMP utils (optional but useful for debugging/trap viewing)
-RUN apt-get update && apt-get install -y snmp && apt-get clean
-
-# Set the working directory
+# Set working directory
 WORKDIR /app
 
-# Copy the binary and credentials
+# Copy statically compiled binary and required files
 COPY --from=builder /app/snmp-trap-sender .
-COPY credentials.json .
+COPY --from=builder /app/credentials.json .
 
-# Expose the port used by the service
+# Expose the port used by the HTTP server
 EXPOSE 8080
 
-# Set the entry point
-CMD ["./snmp-trap-sender"]
+# Run the Go binary
+ENTRYPOINT ["./snmp-trap-sender"]

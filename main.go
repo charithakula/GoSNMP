@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/gosnmp/gosnmp"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 type SNMPTrapRequest struct {
@@ -32,6 +34,26 @@ type SNMPCredentials struct {
 	PrivPassword string `json:"priv_password,omitempty"`
 	AuthProtocol string `json:"auth_protocol,omitempty"`
 	PrivProtocol string `json:"priv_protocol,omitempty"`
+}
+
+// --- Metrics ---
+var (
+	snmpTrapsSent = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "snmp_traps_sent_total",
+			Help: "Total number of SNMP traps successfully sent.",
+		},
+	)
+	snmpTrapFailures = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "snmp_trap_failures_total",
+			Help: "Total number of SNMP trap send failures.",
+		},
+	)
+)
+
+func init() {
+	prometheus.MustRegister(snmpTrapsSent, snmpTrapFailures)
 }
 
 func loadCredentials() (*SNMPCredentials, error) {
@@ -123,12 +145,12 @@ func sendSNMPTrap(oids []gosnmp.SnmpPDU, version string, creds *SNMPCredentials)
 	log.Println("Connecting to SNMP target")
 	if err := g.Connect(); err != nil {
 		log.Printf("Error connecting to SNMP target: %v", err)
+		snmpTrapFailures.Inc()
 		return fmt.Errorf("error connecting to SNMP target: %v", err)
 	}
 	defer g.Conn.Close()
 	log.Println("Connected successfully to SNMP target")
 
-	// Fetch SNMP Engine ID if using SNMPv3
 	if creds.Version == "v3" {
 		oid := "1.3.6.1.6.3.10.2.1.1.0" // snmpEngineID
 		result, err := g.Get([]string{oid})
@@ -147,10 +169,12 @@ func sendSNMPTrap(oids []gosnmp.SnmpPDU, version string, creds *SNMPCredentials)
 	_, err := g.SendTrap(trap)
 	if err != nil {
 		log.Printf("Error sending SNMP trap: %v", err)
+		snmpTrapFailures.Inc()
 		return fmt.Errorf("error sending SNMP trap: %v", err)
 	}
 
 	log.Println("SNMP trap sent successfully")
+	snmpTrapsSent.Inc()
 	return nil
 }
 
@@ -202,9 +226,19 @@ func sendSNMPTrapHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("SNMP Trap sent successfully"))
 }
 
+// --- New Health and Metrics Handlers ---
+func healthHandler(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("OK"))
+}
+
 func main() {
 	log.Println("Starting SNMP Trap HTTP server on port 8080")
+
 	http.HandleFunc("/send_snmp_trap", sendSNMPTrapHandler)
+	http.HandleFunc("/health", healthHandler)
+	http.Handle("/metrics", promhttp.Handler())
+
 	if err := http.ListenAndServe(":8080", nil); err != nil {
 		log.Fatalf("Server failed to start: %v", err)
 	}
